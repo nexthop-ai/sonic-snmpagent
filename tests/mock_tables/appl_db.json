@@ -674,6 +674,12 @@
   "LAG_MEMBER_TABLE:PortChannel04:Ethernet124": {
     "status": "enabled"
   },
+  "LAG_MEMBER_TABLE:PortChannel05": {
+    "status": "enabled"
+  },
+  "LAG_MEMBER_TABLE:PortChannel99:Ethernet0": {
+    "status": "enabled"
+  },
   "LAG_TABLE:PortChannel01": {
     "admin_status": "up",
     "oper_status": "up",

@@ -68,6 +68,15 @@ def connect_SonicV2Connector(self, db_name, retry_on=True):
     _old_connect_SonicV2Connector(self, db_name, retry_on)
 
 
+def scan_SonicV2Connector(self, db_name, cursor=0, match='*', count=10):
+    keys = self.keys(db_name, match) or []
+    # Page one key at a time. Answering cursor 0 on the first call would mean
+    # nothing in the suite ever traverses a second batch.
+    batch = keys[cursor:cursor + 1]
+    next_cursor = cursor + 1 if cursor + 1 < len(keys) else 0
+    return next_cursor, batch
+
+
 def _subscribe_keyspace_notification(self, db_name):
     pass
 
@@ -144,6 +153,7 @@ DBInterface._subscribe_keyspace_notification = _subscribe_keyspace_notification
 mockredis.MockRedis.config_set = config_set
 redis.StrictRedis = SwssSyncClient
 SonicV2Connector.connect = connect_SonicV2Connector
+SonicV2Connector.scan = scan_SonicV2Connector
 swsscommon.SonicV2Connector = SonicV2Connector
 swsscommon.SonicDBConfig = SonicDBConfig
 swsscommon.SonicDBConfig.isGlobalInit = mock_SonicDBConfig_isGlobalInit

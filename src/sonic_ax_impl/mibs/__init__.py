@@ -30,6 +30,12 @@ TABLE_NAME_SEPARATOR_VBAR = '|'
 
 HOST_NAMESPACE_DB_IDX = 0
 
+REDIS_SCAN_COUNT = 4096
+# A full SCAN walk always returns to cursor 0, so hitting this bound means the
+# binding is broken, not that the keyspace is large: at the COUNT above it
+# covers about 41M keys.
+REDIS_SCAN_MAX_ITERATIONS = 10000
+
 RIF_COUNTERS_AGGR_MAP = {
     "SAI_PORT_STAT_IF_IN_OCTETS": "SAI_ROUTER_INTERFACE_STAT_IN_OCTETS",
     "SAI_PORT_STAT_IF_IN_UCAST_PKTS": "SAI_ROUTER_INTERFACE_STAT_IN_PACKETS",
@@ -377,6 +383,59 @@ def init_sync_d_vlan_tables(db_conn):
     return vlan_name_map, oid_sai_map, oid_name_map
 
 
+_scan_usable = True
+
+
+def scan_keys(db_conn, db_name, pattern):
+    """
+    Fetch the keys matching pattern via cursor-based SCAN instead of KEYS, so
+    redis is not blocked on a full keyspace sweep while scan() is usable. The
+    fallback is the blocking KEYS, taken on swsscommon builds whose scan()
+    binding does not return a (cursor, keys) tuple or whose walk never reaches
+    cursor 0.
+
+    scan() does not reconnect on its own, and connect() alone keeps a broken
+    client, so a dropped connection is closed and reconnected here and the
+    walk restarted once from cursor 0 (a cursor is only valid on the
+    connection that issued it). A second failure propagates to the caller.
+
+    Unlike KEYS, a SCAN walk is not an atomic snapshot: a key added or removed
+    while it runs may or may not be reported, so a caller can publish a view
+    that is one refresh interval stale.
+    :param db_conn: database connector
+    :param db_name: database name
+    :param pattern: key glob pattern
+    :return: list of matching keys (SCAN may report a key more than once,
+             duplicates are removed)
+    """
+    global _scan_usable
+    restarted = False
+    while _scan_usable:
+        keys = {}
+        cursor = 0
+        try:
+            for _ in range(REDIS_SCAN_MAX_ITERATIONS):
+                cursor, batch = db_conn.scan(db_name, cursor, pattern, REDIS_SCAN_COUNT)
+                keys.update(dict.fromkeys(batch))
+                if cursor == 0:
+                    return list(keys)
+            _scan_usable = False
+            logger.warning("db scan() did not converge for pattern %s, falling back to blocking keys()", pattern)
+        except (TypeError, ValueError):
+            # The binding handed back something that is not a (cursor, keys)
+            # pair. Latch off; every later lookup takes the fallback.
+            _scan_usable = False
+            logger.warning("db scan() binding is unusable, falling back to blocking keys()")
+        except RuntimeError:
+            if restarted:
+                raise
+            restarted = True
+            logger.warning("db scan() lost the connection, reconnecting and restarting the walk for pattern %s", pattern)
+            db_conn.close(db_name)
+            db_conn.connect(db_name)
+    return db_conn.keys(db_name, pattern) or []
+
+
 def init_sync_d_lag_tables(db_conn):
     """
     Helper method. Connects to and initializes LAG interface maps for SyncD-connected MIB(s).
@@ -398,7 +457,7 @@ def init_sync_d_lag_tables(db_conn):
 
     db_conn.connect(APPL_DB)
 
-    lag_entries = db_conn.keys(APPL_DB, "LAG_TABLE:*")
+    lag_entries = scan_keys(db_conn, APPL_DB, "LAG_TABLE:*")
 
     if not lag_entries:
         return lag_name_if_name_map, if_name_lag_name_map, oid_lag_name_map, lag_sai_map, sai_lag_map
@@ -406,24 +465,26 @@ def init_sync_d_lag_tables(db_conn):
     db_conn.connect(COUNTERS_DB)
     lag_sai_map = db_conn.get_all(COUNTERS_DB, "COUNTERS_LAG_NAME_MAP")
     for name, sai_id in lag_sai_map.items():
-        sai_id_key = get_sai_id_key(db_conn.namespace, sai_id.lstrip("oid:0x"))
+        # lstrip() would strip a character set, eating leading 0/d of the hex.
+        oid_hex = sai_id[len("oid:0x"):] if sai_id.startswith("oid:0x") else sai_id
+        sai_id_key = get_sai_id_key(db_conn.namespace, oid_hex)
         lag_sai_map[name] = sai_id_key
         sai_lag_map[sai_id_key] = name
 
     for lag_entry in lag_entries:
         lag_name = lag_entry[len("LAG_TABLE:"):]
-        lag_members = db_conn.keys(APPL_DB, "LAG_MEMBER_TABLE:%s:*" % lag_name)
-        # TODO: db_conn.keys() should really return [] instead of None
-        if lag_members is None:
-            lag_members = []
+        lag_name_if_name_map[lag_name] = []
 
-        def member_name_str(val, lag_name):
-            return val[len("LAG_MEMBER_TABLE:%s:" % lag_name):]
-
-        lag_member_names = [member_name_str(m, lag_name) for m in lag_members]
-        lag_name_if_name_map[lag_name] = lag_member_names
-        for lag_member_name in lag_member_names:
-            if_name_lag_name_map[lag_member_name] = lag_name
+    for lag_member_entry in scan_keys(db_conn, APPL_DB, "LAG_MEMBER_TABLE:*"):
+        lag_name, sep, lag_member_name = \
+            lag_member_entry[len("LAG_MEMBER_TABLE:"):].partition(':')
+        if not sep:
+            continue
+        if lag_name not in lag_name_if_name_map:
+            logger.debug("LAG_MEMBER_TABLE holds %s under unknown LAG %s", lag_member_name, lag_name)
+            continue
+        lag_name_if_name_map[lag_name].append(lag_member_name)
+        if_name_lag_name_map[lag_member_name] = lag_name
 
     for if_name in lag_name_if_name_map.keys():
         idx = get_index_from_str(if_name)
@@ -548,9 +609,6 @@ class RedisOidTreeUpdater(MIBUpdater):
         self.oid_map = {}
 
         keys = Namespace.dbs_keys(self.db_conn, SNMP_OVERLAY_DB, self.prefix_str + '*')
-        # TODO: fix db_conn.keys to return empty list instead of None if there is no match
-        if keys is None:
-            keys = []
 
         for key in keys:
             oid = oid2tuple(key, dot_prefix=False)
@@ -636,9 +694,7 @@ class Namespace:
         """
         result_keys=[]
         for db_conn in dbs:
-            keys = db_conn.keys(db_name, pattern)
-            if keys is not None:
-                result_keys.extend(keys)
+            result_keys.extend(scan_keys(db_conn, db_name, pattern))
         return result_keys
 
     @staticmethod
@@ -650,10 +706,8 @@ class Namespace:
         """
         result_keys = {}
         for db_index in range(len(dbs)):
-            keys = dbs[db_index].keys(db_name, pattern)
-            if keys is not None:
-                keys_ns = dict.fromkeys(keys, db_index)
-                result_keys.update(keys_ns)
+            keys = scan_keys(dbs[db_index], db_name, pattern)
+            result_keys.update(dict.fromkeys(keys, db_index))
         return result_keys
 
     @staticmethod
@@ -723,7 +777,9 @@ class Namespace:
     def dbs_get_vlan_id_from_bvid(dbs, bvid):
         for db_conn in Namespace.get_non_host_dbs(dbs):
             db_conn.connect('ASIC_DB')
-            vlan_obj = db_conn.keys('ASIC_DB', "ASIC_STATE:SAI_OBJECT_TYPE_VLAN:" + bvid)
-            if vlan_obj is not None:
-                return port_util.get_vlan_id_from_bvid(db_conn, bvid)
+            # The key is fully specified, so read the field directly rather
+            # than through port_util, which pattern-matches it with KEYS.
+            vlan_id = db_conn.get('ASIC_DB', "ASIC_STATE:SAI_OBJECT_TYPE_VLAN:" + bvid, "SAI_VLAN_ATTR_VLAN_ID")
+            if vlan_id is not None:
+                return vlan_id
         return None

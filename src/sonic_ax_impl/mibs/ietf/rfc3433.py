@@ -396,18 +396,21 @@ class PhysicalSensorTableMIBUpdater(MIBUpdater):
 
         # for FAN, PSU and thermal sensors, they are in host namespace DB, to avoid iterating all namespace DBs,
         # just get data from host namespace DB, which is self.statedb[0].
-        fan_sensor_encoded = self.statedb[HOST_NAMESPACE_DB_IDX].keys(self.statedb[HOST_NAMESPACE_DB_IDX].STATE_DB,
-                                                                      self.FAN_SENSOR_KEY_PATTERN)
+        fan_sensor_encoded = mibs.scan_keys(self.statedb[HOST_NAMESPACE_DB_IDX],
+                                            self.statedb[HOST_NAMESPACE_DB_IDX].STATE_DB,
+                                            self.FAN_SENSOR_KEY_PATTERN)
         if fan_sensor_encoded:
             self.fan_sensor = [entry for entry in fan_sensor_encoded]
 
-        psu_sensor_encoded = self.statedb[HOST_NAMESPACE_DB_IDX].keys(self.statedb[HOST_NAMESPACE_DB_IDX].STATE_DB,
-                                                                      self.PSU_SENSOR_KEY_PATTERN)
+        psu_sensor_encoded = mibs.scan_keys(self.statedb[HOST_NAMESPACE_DB_IDX],
+                                            self.statedb[HOST_NAMESPACE_DB_IDX].STATE_DB,
+                                            self.PSU_SENSOR_KEY_PATTERN)
         if psu_sensor_encoded:
             self.psu_sensor = [entry for entry in psu_sensor_encoded]
 
-        thermal_sensor_encoded = self.statedb[HOST_NAMESPACE_DB_IDX].keys(self.statedb[HOST_NAMESPACE_DB_IDX].STATE_DB,
-                                                                          self.THERMAL_SENSOR_KEY_PATTERN)
+        thermal_sensor_encoded = mibs.scan_keys(self.statedb[HOST_NAMESPACE_DB_IDX],
+                                                self.statedb[HOST_NAMESPACE_DB_IDX].STATE_DB,
+                                                self.THERMAL_SENSOR_KEY_PATTERN)
         if thermal_sensor_encoded:
             self.thermal_sensor = [entry for entry in thermal_sensor_encoded]
 
