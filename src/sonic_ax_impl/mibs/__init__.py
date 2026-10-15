@@ -46,6 +46,63 @@ RIF_DROPS_AGGR_MAP = {
 
 redis_kwargs = {'use_unix_socket_path': True}
 
+def _group_members(db_conn, group_id, seen=frozenset()):
+    """
+    Return (nexthops, ifnames) lists for a nexthop group id, or None if no
+    group row exists. The id names a NEXTHOP_GROUP_TABLE row or, for class-based
+    forwarding, a CLASS_BASED_NEXT_HOP_GROUP_TABLE row listing member groups. A
+    NEXTHOP_GROUP_TABLE row can itself list member groups under nexthop_group.
+    A group built from others yields the de-duplicated union of their members.
+    """
+    group = db_conn.get_all(APPL_DB, "NEXTHOP_GROUP_TABLE:" + group_id, blocking=False)
+    if group and not group.get("nexthop_group"):
+        return group.get("nexthop", "").split(','), group.get("ifname", "").split(',')
+    if group:
+        member_ids = group["nexthop_group"]
+    else:
+        cbf_group = db_conn.get_all(APPL_DB, "CLASS_BASED_NEXT_HOP_GROUP_TABLE:" + group_id, blocking=False)
+        if not cbf_group:
+            return None
+        member_ids = cbf_group.get("members", "")
+    seen = seen | {group_id}
+    pairs = []
+    for member_id in member_ids.split(','):
+        if not member_id or member_id in seen:
+            continue
+        members = _group_members(db_conn, member_id, seen)
+        if members is None:
+            logger.warning("Nexthop group {} member missing: {}".format(group_id, member_id))
+            continue
+        pairs.extend(zip(*members))
+    pairs = list(dict.fromkeys(pairs))
+    return [nh for nh, _ in pairs], [ifn for _, ifn in pairs]
+
+
+def route_nexthops(ent, db_conn, route_str):
+    """
+    Return (nexthops, ifnames) comma-separated strings for a ROUTE_TABLE entry, or
+    (None, None) with a warning when the route carries no nexthops.
+
+    With zebra's use-next-hop-groups (DEVICE_METADATA nexthop_group=enabled) fpmsyncd
+    writes the route with empty nexthop/ifname and a nexthop_group id, resolved via
+    _group_members. db_conn must be the connector of the namespace that holds the
+    route, since each namespace allocates group ids independently.
+    """
+    nexthops = ent.get("nexthop", None)
+    ifnames = ent.get("ifname", None)
+    group_id = ent.get("nexthop_group", None)
+    if not nexthops and group_id:
+        members = _group_members(db_conn, group_id)
+        if members is None:
+            logger.warning("Route nexthop group missing: {} {}".format(route_str, str(ent)))
+            return None, None
+        nexthops, ifnames = (','.join(m) for m in members)
+    if not nexthops:
+        logger.warning("Route has no nexthop: {} {}".format(route_str, str(ent)))
+        return None, None
+    return nexthops, ifnames
+
+
 def get_neigh_info(neigh_key):
     """
     split neigh_key string of the format:

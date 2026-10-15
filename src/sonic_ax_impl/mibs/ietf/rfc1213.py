@@ -145,6 +145,7 @@ class NextHopUpdater(MIBUpdater):
         self.nexthop_map = {}
         self.route_list = []
 
+<<<<<<< HEAD
         route_entries = Namespace.dbs_keys(self.db_conn, mibs.APPL_DB, "ROUTE_TABLE:*")
         if not route_entries:
             return
@@ -166,6 +167,31 @@ class NextHopUpdater(MIBUpdater):
                         self.route_list.append(sub_id)
                         self.nexthop_map[sub_id] = ipaddress.ip_address(nh).packed
                         break # Just need the first nexthop
+=======
+        # Only the IPv4 default route is served, so read its key directly
+        # rather than walking the whole route table. Each namespace allocates
+        # its own nexthop group ids, so a group is resolved in the namespace
+        # that holds the route; the last namespace that resolves one wins.
+        routestr = "ROUTE_TABLE:0.0.0.0/0"
+        nexthop = None
+        for db_conn in self.db_conn:
+            ent = db_conn.get_all(mibs.APPL_DB, routestr, blocking=False)
+            if not ent:
+                continue
+            nexthops, _ = mibs.route_nexthops(ent, db_conn, routestr)
+            if nexthops is None:
+                continue
+            nh = next((nh for nh in nexthops.split(',') if nh), None)
+            if nh is not None:
+                nexthop = nh
+
+        if nexthop is not None:
+            ipn = ipaddress.ip_network("0.0.0.0/0")
+            # TODO: if ipn contains IP range, create more sub_id here
+            sub_id = ip2byte_tuple(ipn.network_address)
+            self.route_list.append(sub_id)
+            self.nexthop_map[sub_id] = ipaddress.ip_address(nexthop).packed
+>>>>>>> 4354b51 (NOS-18867: Resolve nexthop-group routes in the SNMP route MIBs (#126))
 
         self.route_list.sort()
 
