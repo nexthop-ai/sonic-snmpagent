@@ -106,58 +106,57 @@ class PfcUpdater(MIBUpdater):
             mibs.logger.warning("SyncD 'COUNTERS_DB' missing attribute '{}'.".format(e))
             return None
 
-    def cpfc_if_requests(self, sub_id):
+    def _get_pfc_total(self, oid, direction):
         """
-        :param sub_id: The 1-based sub-identifier query.
-        :return: the counter for the respective sub_id/table.
+        :param oid: The interface OID.
+        :param direction: 'TX' or 'RX'.
+        :return: sum of SAI_PORT_STAT_PFC_{0..7}_<direction>_PKTS, or None if none are present.
+        A PFC frame that pauses several priorities is counted once per priority, so this is an
+        upper bound on PFC frames. SAI has no per-frame PFC counter.
         """
+        counters = self.if_counters.get(oid, {})
+        total = None
+        for prio in range(8):
+            value = counters.get('SAI_PORT_STAT_PFC_{}_{}_PKTS'.format(prio, direction))
+            if value is None:
+                continue
+            total = (total or 0) + (int(value) & 0xffffffffffffffff)
+        if total is None:
+            mibs.logger.warning("SyncD 'COUNTERS_DB' missing all 'SAI_PORT_STAT_PFC_*_{}_PKTS' attributes for '{}'.".format(
+                direction, self.oid_name_map.get(oid, oid)))
+            return None
+        return total & 0xffffffffffffffff
+
+    def _get_pfc_total_for_sub_id(self, sub_id, direction):
         oid = self.get_oid(sub_id)
         if oid is None:
             return None
 
-        # BUG: need the sum of all the priorities
-        counter_name = 'SAI_PORT_STAT_PFC_3_TX_PKTS'
-
         if oid in self.oid_lag_name_map:
             counter_value = 0
             for lag_member in self.lag_name_if_name_map[self.oid_lag_name_map[oid]]:
-                member_counter = self._get_counter(mibs.get_index_from_str(lag_member), counter_name)
-                if member_counter is not None:
-                    counter_value += member_counter
-                else:
-                    mibs.logger.warning("SyncD 'COUNTERS_DB' missing attribute '{}' for lag member '{}'.".format(counter_name, lag_member))
+                member_counter = self._get_pfc_total(mibs.get_index_from_str(lag_member), direction)
+                if member_counter is None:
                     return None
+                counter_value += member_counter
 
-            return counter_value
+            return counter_value & 0xffffffffffffffff
         else:
-            return self._get_counter(oid, counter_name)
+            return self._get_pfc_total(oid, direction)
 
+    def cpfc_if_requests(self, sub_id):
+        """
+        :param sub_id: The 1-based sub-identifier query.
+        :return: PFC frames sent on the interface, summed over all priorities.
+        """
+        return self._get_pfc_total_for_sub_id(sub_id, 'TX')
 
     def cpfc_if_indications(self, sub_id):
         """
         :param sub_id: The 1-based sub-identifier query.
-        :return: the counter for the respective sub_id/table.
+        :return: PFC frames received on the interface, summed over all priorities.
         """
-        oid = self.get_oid(sub_id)
-        if oid is None:
-            return None
-
-        # BUG: need the sum of all the priorities
-        counter_name = 'SAI_PORT_STAT_PFC_3_RX_PKTS'
-
-        if oid in self.oid_lag_name_map:
-            counter_value = 0
-            for lag_member in self.lag_name_if_name_map[self.oid_lag_name_map[oid]]:
-                member_counter = self._get_counter(mibs.get_index_from_str(lag_member), counter_name)
-                if member_counter is not None:
-                    counter_value += member_counter
-                else:
-                    mibs.logger.warning("SyncD 'COUNTERS_DB' missing attribute '{}' for lag member '{}'.".format(counter_name, lag_member))
-                    return None
-
-            return counter_value
-        else:
-            return self._get_counter(oid, counter_name)
+        return self._get_pfc_total_for_sub_id(sub_id, 'RX')
 
 
 class PfcPrioUpdater(PfcUpdater):

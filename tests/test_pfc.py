@@ -51,7 +51,7 @@ class TestPfcPortCounters(TestCase):
         value0 = response.values[0]
         self.assertEqual(value0.type_, ValueType.COUNTER_64)
         self.assertEqual(str(value0.name), str(oid))
-        self.assertEqual(value0.data, 4)
+        self.assertEqual(value0.data, 0xffffffffffffffff & (209347219842134092490 + 2 + 3 + 4 + 5 + 6 + 7 + 8))
 
     def test_getNextPduRequestForPort(self):
         oid = ObjectIdentifier(32, 0, 0, 0, (1, 3, 6, 1, 4, 1, 9, 9, 813, 1, 1, 1, 1, 1))
@@ -70,7 +70,7 @@ class TestPfcPortCounters(TestCase):
         value0 = response.values[0]
         self.assertEqual(value0.type_, ValueType.COUNTER_64)
         self.assertEqual(str(value0.name), str(expected_oid))
-        self.assertEqual(value0.data, 4)
+        self.assertEqual(value0.data, 36)
 
     def test_getPduIndicationForPort(self):
         oid = ObjectIdentifier(32, 0, 0, 0, (1, 3, 6, 1, 4, 1, 9, 9, 813, 1, 1, 1, 2, 1))
@@ -86,7 +86,7 @@ class TestPfcPortCounters(TestCase):
         value0 = response.values[0]
         self.assertEqual(value0.type_, ValueType.COUNTER_64)
         self.assertEqual(str(value0.name), str(oid))
-        self.assertEqual(value0.data, 4)
+        self.assertEqual(value0.data, 36)
 
     def test_getNextPduindicationForPort(self):
         oid = ObjectIdentifier(32, 0, 0, 0, (1, 3, 6, 1, 4, 1, 9, 9, 813, 1, 1, 1, 2, 1))
@@ -105,7 +105,7 @@ class TestPfcPortCounters(TestCase):
         value0 = response.values[0]
         self.assertEqual(value0.type_, ValueType.COUNTER_64)
         self.assertEqual(str(value0.name), str(expected_oid))
-        self.assertEqual(value0.data, 4)
+        self.assertEqual(value0.data, 36)
 
     def test_getPduRequestForPriority(self):
         oid = ObjectIdentifier(8, 0, 0, 0, (1, 3, 6, 1, 4, 1, 9, 9, 813, 1, 2, 1, 2, 1, 0))
@@ -246,7 +246,7 @@ class TestPfcPortCounters(TestCase):
             mock_logger.assert_not_called()
         print(response)
         value0 = response.values[0]
-        self.assertEqual(value0.data, 4)
+        self.assertEqual(value0.data, 36)
 
     def test_getPduifRequestLagMemberCounterNotAvailable(self):
         oid = ObjectIdentifier(8, 0, 0, 0, (1, 3, 6, 1, 4, 1, 9, 9, 813, 1, 1, 1, 1, 1004))
@@ -276,7 +276,7 @@ class TestPfcPortCounters(TestCase):
             mock_logger.assert_not_called()
         print(response)
         value0 = response.values[0]
-        self.assertEqual(value0.data, 4)
+        self.assertEqual(value0.data, 36)
 
     def test_getNextPduindicationForPriority(self):
         oid = ObjectIdentifier(8, 0, 0, 0, (1, 3, 6, 1, 4, 1, 9, 9, 813, 1, 2, 1, 3, 1, 0))
@@ -312,7 +312,7 @@ class TestPfcPortCounters(TestCase):
         value0 = response.values[0]
         self.assertEqual(value0.type_, ValueType.COUNTER_64)
         self.assertEqual(str(value0.name), str(expected_oid))
-        self.assertEqual(value0.data, 4)
+        self.assertEqual(value0.data, 0xffffffffffffffff & (209347219842134092490 + 2 + 3 + 4 + 5 + 6 + 7 + 8))
 
         # Subtree for Priority
         oid = ObjectIdentifier(33, 0, 0, 0, (1, 3, 6, 1, 4, 1, 9, 9, 813, 1, 2))
@@ -329,3 +329,14 @@ class TestPfcPortCounters(TestCase):
         self.assertEqual(value0.type_, ValueType.COUNTER_64)
         self.assertEqual(str(value0.name), str(expected_oid))
         self.assertEqual(value0.data, 209347219842134092490 % pow(2, 64)) # Test integer truncation
+
+    def test_ifRequestsSumsOnlyPresentPriorities(self):
+        updater = ciscoPfcExtMIB.PfcUpdater.__new__(ciscoPfcExtMIB.PfcUpdater)
+        updater.if_counters = {
+            1: {'SAI_PORT_STAT_PFC_3_TX_PKTS': '1079878', 'SAI_PORT_STAT_PFC_4_TX_PKTS': '1079748'},
+            2: {},
+        }
+        updater.oid_name_map = {}
+        self.assertEqual(updater._get_pfc_total(1, 'TX'), 2159626)
+        self.assertEqual(updater._get_pfc_total(1, 'RX'), None)
+        self.assertEqual(updater._get_pfc_total(2, 'TX'), None)

@@ -51,7 +51,7 @@ class TestPfcPortCounters(TestCase):
         value0 = response.values[0]
         self.assertEqual(value0.type_, ValueType.COUNTER_64)
         self.assertEqual(str(value0.name), str(oid))
-        self.assertEqual(value0.data, 4)
+        self.assertEqual(value0.data, 0xffffffffffffffff & (209347219842134092490 + 2 + 3 + 4 + 5 + 6 + 7 + 8))
 
     def test_getNextPduRequestForPort(self):
         oid = ObjectIdentifier(32, 0, 0, 0, (1, 3, 6, 1, 4, 1, 9, 9, 813, 1, 1, 1, 1, 1))
@@ -70,7 +70,7 @@ class TestPfcPortCounters(TestCase):
         value0 = response.values[0]
         self.assertEqual(value0.type_, ValueType.COUNTER_64)
         self.assertEqual(str(value0.name), str(expected_oid))
-        self.assertEqual(value0.data, 4)
+        self.assertEqual(value0.data, 36)
 
     def test_lastPduRequestForPort(self):
         oid = ObjectIdentifier(32, 0, 0, 0, (1, 3, 6, 1, 4, 1, 9, 9, 813, 1, 1, 1, 1, 9024))
@@ -89,7 +89,7 @@ class TestPfcPortCounters(TestCase):
         value0 = response.values[0]
         self.assertEqual(value0.type_, ValueType.COUNTER_64)
         self.assertEqual(str(value0.name), str(expected_oid))
-        self.assertEqual(value0.data, 4)
+        self.assertEqual(value0.data, 36)
 
     def test_getPduIndicationForPort(self):
         oid = ObjectIdentifier(32, 0, 0, 0, (1, 3, 6, 1, 4, 1, 9, 9, 813, 1, 1, 1, 2, 1))
@@ -105,7 +105,7 @@ class TestPfcPortCounters(TestCase):
         value0 = response.values[0]
         self.assertEqual(value0.type_, ValueType.COUNTER_64)
         self.assertEqual(str(value0.name), str(oid))
-        self.assertEqual(value0.data, 4)
+        self.assertEqual(value0.data, 36)
 
     def test_getNextPduindicationForPort(self):
         oid = ObjectIdentifier(32, 0, 0, 0, (1, 3, 6, 1, 4, 1, 9, 9, 813, 1, 1, 1, 2, 1))
@@ -124,7 +124,7 @@ class TestPfcPortCounters(TestCase):
         value0 = response.values[0]
         self.assertEqual(value0.type_, ValueType.COUNTER_64)
         self.assertEqual(str(value0.name), str(expected_oid))
-        self.assertEqual(value0.data, 4)
+        self.assertEqual(value0.data, 36)
 
     def test_getAsic0FirstPduindicationForPort(self):
         oid = ObjectIdentifier(32, 0, 0, 0, (1, 3, 6, 1, 4, 1, 9, 9, 813, 1, 1, 1, 2, 8999))
@@ -143,7 +143,7 @@ class TestPfcPortCounters(TestCase):
         value0 = response.values[0]
         self.assertEqual(value0.type_, ValueType.COUNTER_64)
         self.assertEqual(str(value0.name), str(expected_oid))
-        self.assertEqual(value0.data, 4)
+        self.assertEqual(value0.data, 36)
 
     def test_getPduRequestForPriority(self):
         oid = ObjectIdentifier(8, 0, 0, 0, (1, 3, 6, 1, 4, 1, 9, 9, 813, 1, 2, 1, 2, 9, 0))
@@ -249,7 +249,7 @@ class TestPfcPortCounters(TestCase):
         value0 = response.values[0]
         self.assertEqual(value0.type_, ValueType.COUNTER_64)
         self.assertEqual(str(value0.name), str(expected_oid))
-        self.assertEqual(value0.data, 4)
+        self.assertEqual(value0.data, 0xffffffffffffffff & (209347219842134092490 + 2 + 3 + 4 + 5 + 6 + 7 + 8))
 
         # Subtree for Priority
         oid = ObjectIdentifier(33, 0, 0, 0, (1, 3, 6, 1, 4, 1, 9, 9, 813, 1, 2))
